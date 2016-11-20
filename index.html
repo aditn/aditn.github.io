@@ -12,7 +12,6 @@
   <body>
     <section class="page-header">
       <h1 class="project-name">Surface Reconstruction for 3D Point Cloud in Parallel</h1>
-      <a href="https://aditn.github.io/statusUpdate.html"><h1 class="project-name">Status Update</h1></a>
       <h2 class="project-tagline">Adit Namdev and Jordan Tick</h2>
     </section>
 
@@ -82,6 +81,113 @@
 <li>Week 5 (By Dec 5): Finish parallelizing optimization. Use kinect to get point clouds.</li>
 <li>Week 6 (By Dec 13): Use kinect to create a 3D mesh of a scene.</li>
 </ul>
+
+<h3>
+<a id="updated-schedule" class="anchor" href="#updated-schedule" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Updated Schedule</h3>
+
+<p>We are roughly on track. We are debugging our serial implementation this week, and then will spend the final two weeks parallelizing it. As such, we are leaving the kinect off for now as more of a “reach goal” we will get to if we have time. Our primary goal for now is making our algorithm run in parallel. Because of this, our new schedule looks something like this:</p>
+
+<p>Week 2.5 (By Nov 22): Meet with TAs/professors to fully understand algorithm and link 3rd party libraries (armadillo?,openGL?,cuda?)</p>
+
+<ul>
+<li>We will both meet with Keenan to discuss algorithm</li>
+<li>Both meet with TAs or graphics on how to get openGL/Armadillo to compile</li>
+</ul>
+
+<p>Week 3 (By Nov 28) have serial implementation working and start parallelization</p>
+
+<ul>
+<li>Adit focuses on planes and nearest neighbors and distance function</li>
+<li>Jordan focuses on cubes and mesh refinement</li>
+<li>Both focus on propagating normal vectors since requires parallelizing an MST</li>
+</ul>
+
+<p>Week 3.5 (By Dec 1): Rough parallelism of each step</p>
+
+<ul>
+<li>Same assignments</li>
+</ul>
+
+<p>Week 4 (By Dec 5): identify bottlenecks and attempt possible fixes</p>
+
+<ul>
+<li>Meeting up and doing this together</li>
+</ul>
+
+<p>Week 5 (By Dec 13): Gather data for various meshes; try some tricks to address bottlenecks</p>
+
+<ul>
+<li>Too soon to tell who does what</li>
+</ul>
+
+<h3>
+<a id="how-were-doing" class="anchor" href="#how-were-doing" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>How we're doing</h3>
+
+<p>Thus far we have generated point clouds for different shapes (sphere, cubes, etc) for testing. We can view these using Blender. We are following Hugues Hoppe’s thesis on Surface Reconstruction from Unorganized Points to produce a serial algorithm. The majority of this algorithm has been coded, but we are currently in the process of debugging. Although we are still working on the serial implementation, we have discussed how to parallelize sections of the algorithm. For example, for step 3 of the algorithm, we plan on creating a quad-tree to group the points by location and then send that data to a core of the GPU. For step 4, we need to propagate consistent normal vectors between neighboring planes via a Minimum Spanning Tree. Processing the different layers of this tree in parallel will be an interesting task; we were thinking of processing the tree in BFS so that after every few iterations we can somehow ‘fork off’ work since the nodes are independent of each other (since it’s a tree). One final interesting aspect of parallelization is that currently neighbors are doing redundant work (since all cubes share faces with their neighbors); deciding how much or how little we want the neighbors to communicate to each other will have to be determined through experimentation.
+One last thing to note is that the nice thing about using voxels in a 3D space is we can fully take advantage of CUDAs 3D indexing since cube(i,j,k) could be mapped to thread.ijk!</p>
+
+<p>We will be able to produce most of the deliverables except for the final task of creating our own point clouds using the Microsoft Kinect. Doing this would be a reach-goal that we would attempt once our parallel implementation is mostly complete. Currently, however, we are behind on implementing the original surface reconstruction algorithm.
+Goal 1: Produce a dense surface reconstruction of a point cloud.
+Goal 2: Refine mesh to reduce number of edges while keeping the shape intact.
+Goal 3 (Reach Goal): Create our own point clouds using a Kinect and test our own algorithm on it.</p>
+
+<h3>
+<a id="algorithm" class="anchor" href="#algorithm" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Algorithm</h3>
+
+<p>Our algorithm has roughly nine steps:</p>
+
+<ol>
+<li>Read points from input file</li>
+<li>Find nearest neighbors for every point</li>
+<li>Create tangent planes for each point based on its nearest neighbors (approximate surface)</li>
+<li>Propagate the normal direction between neighboring planes so that they’re all roughly pointing the same direction</li>
+<li>Be able to call a distance function that tells us approximate distance to surface from any arbitrary point in  space</li>
+<li>Turn the 3D space encompassing our point cloud into a bunch of cubes/voxels (either implicitly or explicitly)</li>
+<li>Create the approximate mesh based on what distance values are calculated for the corners of the cubes</li>
+<li>Refine the mesh (likely to be very dense since a point cloud) by deleting unnecessary vertices and trying to have every vertex degree roughly the same</li>
+<li>Write mesh to an output file</li>
+</ol>
+
+<p>Currently, we’ve serially implemented 1-3,5-7 and 9. We have a rough plan of how we plan to parallelize each stage but we must first debug our serial implementation.</p>
+
+<p>Bug: Difficulty has arisen for step 3 because we were hoping to use the Armadillo C++ library to do PCA for us for finding the normals; we can’t seem to understand how to link this library to our code so instead we found code online that calculates the eigenvalues of a 3x3 matrix and are trying to interface with it from our code.
+The benefit of our code is that it is very modular (clearly defined steps). To test our code, we can do the following:</p>
+
+<ol>
+<li>Generate and output planes to see if they look correct.</li>
+<li>Generate a new point cloud everywhere our distance function is negative (implies inside our mesh) to see if this function is correct.</li>
+<li>Output our final mesh to see if it looks like our point cloud.</li>
+</ol>
+
+<p>We have left our serial implementation very basic so that we can focus our time on parallelizing it:
+Nearest neighbor search: just loop through all points, calculate distance, and keep the closest.
+Create tangent planes: get nearest neighbors for each point, approximate centroid and normal.
+Distance function: First find nearest point, then get distance to that plane</p>
+
+<p>Turning 3D space into voxels: First we get bounding box for all points, then we divide it into cubes (our bounding box struct)</p>
+
+<p>Creating mesh: for each cube, evaluate the distance function at its corners. No communication between neighbors. We want mesh to be where distance function is zero, so we interpolate values between corners that are positive and corners that are negative to approximate mesh.</p>
+
+<p>Writing mesh to file: Since our cubes don’t communicate to their neighbors at all, this means they generate redundant vertices. Thus, we must sort the vertices and delete duplicates and then also have our edge array index into the vertex array to follow .obj format.</p>
+
+<p>We currently have NOT implemented steps 4 and 8. Step 4 requires us to create an MST/MSF of our points so that nearby points have normal vectors pointing in the same direction; we didn’t want to implement this until we had working normal vectors. Similarly step 8 refines our mesh so we can’t implement this until we have our mesh working. Jordan has taken 15-462 before and one of his homeworks involved mesh simplification, so he is confident this step will be simple once we have the full mesh generated.</p>
+
+<h3>
+<a id="poster-session" class="anchor" href="#poster-session" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Poster Session</h3>
+
+<p>Our project is creating a mesh from a point cloud, so in a perfect scenario our demo will include a bunch of examples of this happening! This will mean displaying images of the original point cloud, our reconstructed mesh, and performance graphs. Potentially, as a reach goal, we would have the mesh graphically generated live as a demo to visualize how the points connect.</p>
+
+<h3>
+<a id="preliminary-results" class="anchor" href="#preliminary-results" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Preliminary Results</h3>
+
+<p>We have written a rough serial version of our program and have plans on how to parallelize it. Currently we are in the debugging stage because we were not able to link the C Armadillo API to our code (which means we had to grab some stranger’s code (which we have cited) off the internet and are now trying to understand it so we can call it from our code. The code is for PCA analysis of a matrix, which is needed for generating normals in the point cloud.</p>
+
+<p>Because we are in the debug stage, we do not yet have results to show but we should by the end of the week!</p>
+
+<h3>
+<a id="current-issues" class="anchor" href="#current-issues" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Current Issues</h3>
+
+<p>We have a few issues currently. Some of the methods discussed in Hoppe’s paper are vague and research into them have not been too fruitful. We plan on discussing these issues with a Computer Graphics/Vision professor to see if he might be able to shed some light. More pressing, however, include learning to write Makefiles and using an API. We would like to use Armadillo, a C++ linear algebra library, for computing the tangent planes at each point (Step 2). This would allow us to implement the initial serial algorithm quicker and allow us to avoid the hassle of writing new matrix data structures.</p>
 
       <footer class="site-footer">
 
